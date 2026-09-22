@@ -188,11 +188,6 @@ class LinkPlotter:
             line, = ax.plot(H.real, H.imag, label=label, **style)
 
             if i == 0:
-                ax.plot(
-                    H.real, -H.imag, ":",
-                    color=line.get_color(),
-                    alpha=0.45,
-                )
                 ax.plot(H.real[0], H.imag[0], "ro")
                 ax.plot(H.real[-1], H.imag[-1], "go")
 
