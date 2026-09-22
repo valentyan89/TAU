@@ -3,6 +3,16 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 
+def _split_param(value):
+    """Первое значение — основной вариант, остальные — для сравнения."""
+    if isinstance(value, (list, tuple, np.ndarray)):
+        values = [float(v) for v in value]
+        if not values:
+            raise ValueError("Список параметров не должен быть пустым")
+        return values[0], values[1:]
+    return float(value), []
+
+
 '''
 Класс для представления линейного звена.
 '''
@@ -10,12 +20,38 @@ class Link:
     def __init__(self, name, link_type, k=1.0, T=0.9, zeta=0.4):
         self.name = name
         self.link_type = link_type
-        self.k = k
-        self.T = T
-        self.zeta = zeta
+
+        self.k, extra_k = _split_param(k)
+        self.T, extra_T = _split_param(T)
+        self.zeta, extra_zeta = _split_param(zeta)
+
+        # Пары (имя параметра, значение) для пунктирных кривых.
+        # Каждый параметр меняется отдельно при остальных из варианта.
+        self.comparisons = (
+            [("k", v) for v in extra_k]
+            + [("T", v) for v in extra_T]
+            + [("zeta", v) for v in extra_zeta]
+        )
 
         self.num, self.den = self._get_transfer_function()
         self.system = self.get_system()
+
+    def with_params(self, **overrides):
+        """Копия звена с теми же типом/именем и другими k, T, ζ."""
+        return Link(
+            name=self.name,
+            link_type=self.link_type,
+            k=overrides.get("k", self.k),
+            T=overrides.get("T", self.T),
+            zeta=overrides.get("zeta", self.zeta),
+        )
+
+    def comparison_links(self):
+        """Звенья для сравнения: одно значение меняется, остальные как в варианте."""
+        links = []
+        for param, value in self.comparisons:
+            links.append((param, value, self.with_params(**{param: value})))
+        return links
 
     def _get_transfer_function(self):
         """Возвращает коэффициенты числителя и знаменателя передаточной функции в виде списков."""
@@ -62,11 +98,29 @@ class Link:
 
         return signal.TransferFunction(self.num, self.den)
 
+    def param_label(self, changed=None):
+        if changed == "k":
+            return f"k = {self.k:g}"
+        if changed == "T":
+            return f"T = {self.T:g}"
+        if changed == "zeta":
+            return f"ζ = {self.zeta:g}"
+
+        if self.link_type in ("oscillatory", "combined"):
+            return f"вариант: k={self.k:g}, T={self.T:g}, ζ={self.zeta:g}"
+        return f"вариант: k={self.k:g}, T={self.T:g}"
+
     def __str__(self):
+        extra = ""
+        if self.comparisons:
+            extra = ", сравнения=" + ", ".join(
+                f"{p}={v:g}" for p, v in self.comparisons
+            )
         return (
             f"{self.name}: "
             f"type={self.link_type}, "
             f"k={self.k}, T={self.T}, zeta={self.zeta}"
+            f"{extra}"
         )
 
 
@@ -82,17 +136,38 @@ class LinkPlotter:
             points
         )
 
+    def _curves(self, link):
+        """Основная кривая (сплошная) и сравнения (пунктир)."""
+        yield link, link.param_label(), {"linestyle": "-", "linewidth": 2.2}
+
+        for param, value, alt in link.comparison_links():
+            yield alt, alt.param_label(changed=param), {
+                "linestyle": "--",
+                "linewidth": 1.5,
+            }
+
     def plot_step(self, link, ax):
         """Переходная характеристика."""
 
-        t_end = 12 * link.T
+        all_links = [link] + [alt for _, _, alt in link.comparison_links()]
+        t_end = 12 * max(item.T for item in all_links)
         t = np.linspace(0, t_end, 4000)
 
-        t, h = signal.step(link.get_system(), T=t)
+        shown_k = set()
+        for item, label, style in self._curves(link):
+            _, h = signal.step(item.get_system(), T=t)
+            ax.plot(t, h, label=label, **style)
 
-        ax.plot(t, h, label=link.name)
-        ax.axhline(link.k, color="green", linestyle="--",
-                   linewidth=1, label=f"k = {link.k:g}")
+            if item.k not in shown_k:
+                shown_k.add(item.k)
+                ax.axhline(
+                    item.k,
+                    color="green",
+                    linestyle=":" if item is not link else "--",
+                    linewidth=1,
+                    alpha=0.8,
+                    label=f"k = {item.k:g}",
+                )
 
         ax.set_title("Переходная характеристика")
         ax.set_xlabel("t, с")
@@ -104,16 +179,22 @@ class LinkPlotter:
     def plot_nyquist(self, link, ax):
         """Амплитудно-фазовая характеристика."""
 
-        w, H = signal.freqresp(
-            link.get_system(),
-            w=self.w
-        )
+        for i, (item, label, style) in enumerate(self._curves(link)):
+            _, H = signal.freqresp(
+                item.get_system(),
+                w=self.w
+            )
 
-        ax.plot(H.real, H.imag, label=link.name)
-        ax.plot(H.real, -H.imag, "--", alpha=0.5)
+            line, = ax.plot(H.real, H.imag, label=label, **style)
 
-        ax.plot(H.real[0], H.imag[0], "ro")
-        ax.plot(H.real[-1], H.imag[-1], "go")
+            if i == 0:
+                ax.plot(
+                    H.real, -H.imag, ":",
+                    color=line.get_color(),
+                    alpha=0.45,
+                )
+                ax.plot(H.real[0], H.imag[0], "ro")
+                ax.plot(H.real[-1], H.imag[-1], "go")
 
         ax.axhline(0, color="black", linewidth=0.6)
         ax.axvline(0, color="black", linewidth=0.6)
@@ -128,13 +209,13 @@ class LinkPlotter:
     def plot_bode(self, link, ax_mag, ax_phase):
         """ЛАЧХ и ЛФЧХ."""
 
-        w, mag, phase = signal.bode(
-            link.get_system(),
-            w=self.w
-        )
-
-        ax_mag.semilogx(w, mag, label=link.name)
-        ax_phase.semilogx(w, phase, label=link.name)
+        for item, label, style in self._curves(link):
+            w, mag, phase = signal.bode(
+                item.get_system(),
+                w=self.w
+            )
+            ax_mag.semilogx(w, mag, label=label, **style)
+            ax_phase.semilogx(w, phase, label=label, **style)
 
         ax_mag.set_title("ЛАЧХ")
         ax_mag.set_xlabel("ω, рад/с")
@@ -151,6 +232,10 @@ class LinkPlotter:
     def plot_link(self, link):
         """Строит все применимые характеристики одного звена."""
 
+        extra = ""
+        if link.comparisons:
+            extra = " | пунктир — сравнение"
+
         if link.link_type == "forcing":
             fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
@@ -160,7 +245,7 @@ class LinkPlotter:
 
             fig.suptitle(
                 f"{link.name} | Форсирующее звено\n"
-                f"k={link.k:g}, T={link.T:g}"
+                f"k={link.k:g}, T={link.T:g}{extra}"
             )
 
         else:
@@ -172,7 +257,7 @@ class LinkPlotter:
 
             fig.suptitle(
                 f"{link.name}\n"
-                f"k={link.k:g}, T={link.T:g}, ζ={link.zeta:g}"
+                f"k={link.k:g}, T={link.T:g}, ζ={link.zeta:g}{extra}"
             )
 
         fig.tight_layout()
@@ -191,19 +276,20 @@ class LinkPlotter:
 Построение графиков характеристик линейных звеньев.
 '''
 if __name__ == "__main__":
-    # Вариант 10
+    # Вариант 10. Первое число в списке — ваш вариант (сплошная линия),
+    # остальные — для сравнения (пунктир). Можно передать и одно число.
     link1 = Link(
         name="Апериодическое звено",
         link_type="aperiodic",
         k=1,
-        T=0.9
+        T=[0.9, 0.45, 1.8],
     )
 
     link2 = Link(
         name="Форсирующее звено",
         link_type="forcing",
         k=1,
-        T=0.9
+        T=[0.9, 0.45, 1.8],
     )
 
     link3 = Link(
@@ -211,7 +297,7 @@ if __name__ == "__main__":
         link_type="oscillatory",
         k=1,
         T=0.9,
-        zeta=0.4
+        zeta=[0.4, 0.15, 0.8],
     )
 
     link4 = Link(
@@ -219,7 +305,7 @@ if __name__ == "__main__":
         link_type="combined",
         k=1,
         T=0.9,
-        zeta=0.4
+        zeta=[0.4, 0.15, 0.8],
     )
 
     links = [link1, link2, link3, link4]
