@@ -2,9 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 
-
+'''
+Парсер параметров 
+TODO вынести в файл утилок
+'''
 def _split_param(value):
-    """Первое значение — основной вариант, остальные — для сравнения."""
+    '''Первое значение - основной вариант, остальные - для сравнения.'''
     if isinstance(value, (list, tuple, np.ndarray)):
         values = [float(v) for v in value]
         if not values:
@@ -25,8 +28,7 @@ class Link:
         self.T, extra_T = _split_param(T)
         self.zeta, extra_zeta = _split_param(zeta)
 
-        # Пары (имя параметра, значение) для пунктирных кривых.
-        # Каждый параметр меняется отдельно при остальных из варианта.
+        # Пары (имя параметра, значение) для пунктирных кривых (не основных вариантов).
         self.comparisons = (
             [("k", v) for v in extra_k]
             + [("T", v) for v in extra_T]
@@ -37,7 +39,7 @@ class Link:
         self.system = self.get_system()
 
     def with_params(self, **overrides):
-        """Копия звена с теми же типом/именем и другими k, T, ζ."""
+        '''Копия звена с теми же типом/именем и другими k, T, ζ.'''
         return Link(
             name=self.name,
             link_type=self.link_type,
@@ -47,14 +49,14 @@ class Link:
         )
 
     def comparison_links(self):
-        """Звенья для сравнения: одно значение меняется, остальные как в варианте."""
+        '''Звенья для сравнения: одно значение меняется, остальные как в варианте.'''
         links = []
         for param, value in self.comparisons:
             links.append((param, value, self.with_params(**{param: value})))
         return links
 
     def _get_transfer_function(self):
-        """Возвращает коэффициенты числителя и знаменателя передаточной функции в виде списков."""
+        '''Возвращает коэффициенты числителя и знаменателя передаточной функции в виде списков.'''
 
         if self.link_type == "aperiodic":
             # W(s) = k / (Ts + 1)
@@ -94,7 +96,7 @@ class Link:
         return num, den
 
     def get_system(self):
-        """Возвращает передаточную функцию в виде объекта scipy.signal.TransferFunction."""
+        '''Возвращает передаточную функцию в виде объекта scipy.signal.TransferFunction.'''
 
         return signal.TransferFunction(self.num, self.den)
 
@@ -137,7 +139,7 @@ class LinkPlotter:
         )
 
     def _curves(self, link):
-        """Основная кривая (сплошная) и сравнения (пунктир)."""
+        '''Основная кривая (сплошная) и сравнения (пунктир).'''
         yield link, link.param_label(), {"linestyle": "-", "linewidth": 2.2}
 
         for param, value, alt in link.comparison_links():
@@ -147,7 +149,7 @@ class LinkPlotter:
             }
 
     def plot_step(self, link, ax):
-        """Переходная характеристика."""
+        '''Переходная характеристика.'''
 
         all_links = [link] + [alt for _, _, alt in link.comparison_links()]
         t_end = 12 * max(item.T for item in all_links)
@@ -177,7 +179,7 @@ class LinkPlotter:
         ax.legend()
 
     def plot_nyquist(self, link, ax):
-        """Амплитудно-фазовая характеристика."""
+        '''Амплитудно-фазовая характеристика.'''
 
         for i, (item, label, style) in enumerate(self._curves(link)):
             _, H = signal.freqresp(
@@ -202,7 +204,7 @@ class LinkPlotter:
         ax.legend()
 
     def plot_bode(self, link, ax_mag, ax_phase):
-        """ЛАЧХ и ЛФЧХ."""
+        '''ЛАЧХ и ЛФЧХ.'''
 
         for item, label, style in self._curves(link):
             w, mag, phase = signal.bode(
@@ -225,7 +227,7 @@ class LinkPlotter:
         ax_phase.legend()
 
     def plot_link(self, link):
-        """Строит все применимые характеристики одного звена."""
+        '''Строит все применимые характеристики одного звена.'''
 
         extra = ""
         if link.comparisons:
@@ -259,7 +261,7 @@ class LinkPlotter:
         return fig
 
     def plot_links(self, links):
-        """Строит характеристики для списка звеньев."""
+        '''Строит характеристики для списка звеньев.'''
 
         for link in links:
             self.plot_link(link)
@@ -271,8 +273,6 @@ class LinkPlotter:
 Построение графиков характеристик линейных звеньев.
 '''
 if __name__ == "__main__":
-    # Вариант 10. Первое число в списке — ваш вариант (сплошная линия),
-    # остальные — для сравнения (пунктир). Можно передать и одно число.
     link1 = Link(
         name="Апериодическое звено",
         link_type="aperiodic",
