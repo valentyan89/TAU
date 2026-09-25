@@ -273,34 +273,35 @@ class LinkPlotter:
 Построение графиков характеристик линейных звеньев.
 '''
 if __name__ == "__main__":
+    k, T, zeta = 1, 0.9, 0.4
     link1 = Link(
         name="Апериодическое звено",
         link_type="aperiodic",
-        k=1,
-        T=[0.9, 0.45, 1.8],
+        k=k,
+        T=[T, T/2, T*2],
     )
 
     link2 = Link(
         name="Форсирующее звено",
         link_type="forcing",
         k=1,
-        T=[0.9, 0.45, 1.8],
+        T=[T, T/2, T*2],
     )
 
     link3 = Link(
         name="Колебательное звено",
         link_type="oscillatory",
         k=1,
-        T=0.9,
-        zeta=[0.4, 0.15, 0.8],
+        T=T,
+        zeta=[zeta, zeta/2, zeta*2],
     )
 
     link4 = Link(
         name="Комбинированное звено",
         link_type="combined",
         k=1,
-        T=0.9,
-        zeta=[0.4, 0.15, 0.8],
+        T=T,
+        zeta=[zeta, zeta/2, zeta*2],
     )
 
     links = [link1, link2, link3, link4]
