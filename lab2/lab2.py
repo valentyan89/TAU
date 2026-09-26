@@ -4,7 +4,7 @@ from scipy import signal
 
 
 def _split_param(value):
-    """Первое значение — основной вариант, остальные — для сравнения/исследования."""
+    '''Первое значение — основной вариант, остальные — для сравнения/исследования.'''
     if isinstance(value, (list, tuple, np.ndarray)):
         values = [float(v) for v in value]
         if not values:
@@ -14,10 +14,10 @@ def _split_param(value):
 
 
 class ControlSystem:
-    """
+    '''
     Класс для исследования устойчивости замкнутой САУ с объектом 3-го порядка
     и различными типами регуляторов (P, PD, PI).
-    """
+    '''
 
     def __init__(self, name, controller_type: str, a0=1.0, a1=2.0, a2=2.0, kp=1.0, kd=1.0, ki=0.1):
         self.name = name
@@ -46,7 +46,7 @@ class ControlSystem:
         self.closed_system = signal.TransferFunction(self.num_closed, self.den_closed)
 
     def with_params(self, **overrides):
-        """Создает копию системы с измененными коэффициентами регулятора/объекта."""
+        '''Создает копию системы с измененными коэффициентами регулятора/объекта.'''
         return ControlSystem(
             name=self.name,
             controller_type=self.controller_type,
@@ -59,14 +59,14 @@ class ControlSystem:
         )
 
     def comparison_systems(self):
-        """Возвращает список дополнительных систем для сравнения на графике."""
+        '''Возвращает список дополнительных систем для сравнения на графике.'''
         systems = []
         for param, value in self.comparisons:
             systems.append((param, value, self.with_params(**{param: value})))
         return systems
 
     def _get_controller_tf(self):
-        """Возвращает числитель и знаменатель ПФ регулятора W_p(s)."""
+        '''Возвращает числитель и знаменатель ПФ регулятора W_p(s).'''
         if self.controller_type == "P":
             # W_p(s) = kp
             return [self.kp], [1.0]
@@ -83,7 +83,7 @@ class ControlSystem:
             raise ValueError(f"Неизвестный тип регулятора: {self.controller_type}")
 
     def _get_open_loop_tf(self):
-        """Возвращает числитель и знаменатель разомкнутой системы W_open = W_p * W_o."""
+        '''Возвращает числитель и знаменатель разомкнутой системы W_open = W_p * W_o.'''
         num_p, den_p = self._get_controller_tf()
         num_o, den_o = [1.0], [self.a0, self.a1, self.a2, 1.0]
 
@@ -92,14 +92,14 @@ class ControlSystem:
         return num_open, den_open
 
     def _get_closed_loop_tf(self):
-        """Возвращает числитель и знаменатель замкнутой системы при единичной ОС."""
+        '''Возвращает числитель и знаменатель замкнутой системы при единичной ОС.'''
         # W_closed = W_open / (1 + W_open) = num_open / (den_open + num_open)
         num_closed = self.num_open
         den_closed = np.polyadd(self.den_open, self.num_open)
         return num_closed, den_closed
 
     def is_stable(self):
-        """Проверка основного условия устойчивости (все корни в левой полуплоскости)."""
+        '''Проверка основного условия устойчивости (все корни в левой полуплоскости).'''
         roots = np.roots(self.den_closed)
         return np.all(np.real(roots) < 0)
 
@@ -130,7 +130,7 @@ class ControlSystem:
         return self.name
 
     def __str__(self):
-        """Выводит в консоль подробный расчет корней и статус устойчивости."""
+        '''Выводит в консоль подробный расчет корней и статус устойчивости.'''
         res = f"\n================ {self.name} ({self.param_label()}) ================\nКорни характеристического уравнения:\n"
         for i, r in enumerate(np.roots(self.den_closed), 1):
             res += f"   s_{i} = {r.real:+.4f} {"+" if r.imag >= 0 else "-"} {abs(r.imag):.4f}j\n"
@@ -139,16 +139,16 @@ class ControlSystem:
 
 
 class SystemPlotter:
-    """
+    '''
     Класс для визуализации годографа Найквиста и расчета запасов устойчивости.
-    """
+    '''
 
     def __init__(self, w_min=0.001, w_max=100.0, points=5000, mirror=True):
         self.w = np.logspace(np.log10(w_min), np.log10(w_max), points)
         self.mirror = mirror
 
     def _curves(self, system: ControlSystem):
-        """Основная система (сплошная линия) и сравнения (пунктир)."""
+        '''Основная система (сплошная линия) и сравнения (пунктир).'''
         yield system, system.param_label(), {"linestyle": "-", "linewidth": 2.0}
 
         for param, _, alt in system.comparison_systems():
@@ -158,7 +158,7 @@ class SystemPlotter:
             }
 
     def _calculate_margins(self, system: ControlSystem):
-        """Вычисление запасов устойчивости по амплитуде и фазе."""
+        '''Вычисление запасов устойчивости по амплитуде и фазе.'''
         _, H = signal.freqresp(system.get_sistem("Open"), w=self.w)
         mag = np.abs(H)
         phase = np.unwrap(np.angle(H)) * 180.0 / np.pi
@@ -176,7 +176,7 @@ class SystemPlotter:
         return gain_margin_db, gain_margin_times, phase_margin
 
     def plot_nyquist(self, system: ControlSystem):
-        """Строит годограф Найквиста для системы и выводит запасы устойчивости."""
+        '''Строит годограф Найквиста для системы и выводит запасы устойчивости.'''
         fig, ax = plt.subplots(figsize=(8, 7))
 
         for (sys_item, label, style) in self._curves(system):
@@ -218,19 +218,27 @@ class SystemPlotter:
         return fig
 
     def plot_all(self, systems: list[ControlSystem]):
-        """Построение графиков для всех исследуемых систем."""
+        '''Построение графиков для всех исследуемых систем.'''
         for sys in systems:
             print(sys)
             self.plot_nyquist(sys)
         plt.show()
 
-
-# ==========================================
-# ОСНОВНОЙ БЛОК ВЫПОЛНЕНИЯ (ВАРИАНТ 10)
-# ==========================================
 if __name__ == "__main__":
-    # Коэффициенты объекта для Варианта 1: a0=1.0, a1=2.0, a2=2.0
-    a0, a1, a2 = 1.0, 2.0, 2.0
+    # Коэффициенты берутся из таблицы 2.1 согласно варианту
+    tabular_variables = {
+        "a0": 1.0,
+        "a1": 2.0, 
+        "a2": 2.0, 
+        "kd": 1.0, 
+        "ki": 0.1
+    }
+    # Коэфициенты граничных случаев, подбераются эксперементально
+    experimental_variables = {
+        "kp": 3.0, # Эксперементальное значение для П-регулятора
+        "kd": 0.5, # Эксперементальное значение для ПД-регулятора
+        "ki": 1.0, # Эксперементальное значение для ПИ-регулятора
+    }
 
     # 1. Пропорциональный регулятор (П-регулятор)
     # Исследуем:
@@ -240,10 +248,10 @@ if __name__ == "__main__":
     p_sys = ControlSystem(
         name="Исследование П-регулятора",
         controller_type="P",
-        a0=a0,
-        a1=a1,
-        a2=a2,
-        kp=[1.0, 3.0, 4.0],  # 1.0 — вариант, 3.0 и 4.0 — пунктиры для сравнения
+        a0=tabular_variables["a0"],
+        a1=tabular_variables["a1"],
+        a2=tabular_variables["a2"],
+        kp=[1.0, experimental_variables["kp"], 4.0],
     )
 
     # 2. Пропорционально-дифференциальный регулятор (ПД-регулятор)
@@ -254,11 +262,12 @@ if __name__ == "__main__":
     pd_sys = ControlSystem(
         name="Исследование ПД-регулятора",
         controller_type="PD",
-        a0=a0,
-        a1=a1,
-        a2=a2,
+        a0=tabular_variables["a0"],
+        a1=tabular_variables["a1"],
+        a2=tabular_variables["a2"],
         kp=4.0,
-        kd=[1.0, 0.5, 0.25],  # 1.0 — вариант, 0.5 и 0.25 — пунктиры
+        kd=[tabular_variables["kd"], experimental_variables["kd"], 
+            tabular_variables["kd"]+2*(experimental_variables["kd"] - tabular_variables["kd"])], 
     )
 
     # 3. Пропорционально-интегральный регулятор (ПИ-регулятор)
@@ -269,11 +278,12 @@ if __name__ == "__main__":
     pi_sys = ControlSystem(
         name="Исследование ПИ-регулятора",
         controller_type="PI",
-        a0=a0,
-        a1=a1,
-        a2=a2,
+        a0=tabular_variables["a0"],
+        a1=tabular_variables["a1"],
+        a2=tabular_variables["a2"],
         kp=1.0,
-        ki=[0.1, 1, 1.9],  # 0.1 — вариант, 1.0 и 1.9 — пунктиры
+        ki=[tabular_variables["ki"], experimental_variables["ki"], 
+            tabular_variables["ki"]+2*(experimental_variables["ki"] - tabular_variables["ki"])], 
     )
 
     systems = [p_sys, pd_sys, pi_sys]
