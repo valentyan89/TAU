@@ -4,7 +4,7 @@ from scipy import signal
 
 
 def _split_param(value):
-    '''Первое значение — основной вариант, остальные — для сравнения/исследования.'''
+    '''Первое значение - основной вариант, остальные - для сравнения/исследования.'''
     if isinstance(value, (list, tuple, np.ndarray)):
         values = [float(v) for v in value]
         if not values:
@@ -28,7 +28,7 @@ class ControlSystem:
         self.a1, _ = _split_param(a1)
         self.a2, _ = _split_param(a2)
 
-        # Коэффициенты регулятора (первый — основной, остальные — дополнительные исследуемые)
+        # Коэффициенты регулятора (первый - основной, остальные - дополнительные исследуемые)
         self.kp, extra_kp = _split_param(kp)
         self.kd, extra_kd = _split_param(kd)
         self.ki, extra_ki = _split_param(ki)
@@ -131,7 +131,7 @@ class ControlSystem:
 
     def __str__(self):
         '''Выводит в консоль подробный расчет корней и статус устойчивости.'''
-        res = f"\n================ {self.name} ({self.param_label()}) ================\nКорни характеристического уравнения:\n"
+        res = f"\n{self.name} ({self.param_label()}) \nКорни характеристического уравнения:\n"
         for i, r in enumerate(np.roots(self.den_closed), 1):
             res += f"   s_{i} = {r.real:+.4f} {"+" if r.imag >= 0 else "-"} {abs(r.imag):.4f}j\n"
         res += f"Состояние системы: {"УСТОЙЧИВА" if self.is_stable() else "НЕУСТОЙЧИВА"}"
@@ -182,16 +182,8 @@ class SystemPlotter:
         for (sys_item, label, style) in self._curves(system):
             _, H = signal.freqresp(sys_item.get_sistem("Open"), w=self.w)
 
-            # Прямая и зеркальная ветви
+            # Прямая
             ax.plot(H.real, H.imag, label=f"{label} (ω > 0)", **style)
-            if self.mirror:
-                ax.plot(
-                    H.real,
-                    -H.imag,
-                    linestyle=":",
-                    color=style.get("color", None),
-                    alpha=0.5,
-                )
 
             # Вычисление и печать запасов для текущего режима
             gm_db, gm_times, pm = self._calculate_margins(sys_item)
