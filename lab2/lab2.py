@@ -16,10 +16,10 @@ def _split_param(value):
 class ControlSystem:
     """
     Класс для исследования устойчивости замкнутой САУ с объектом 3-го порядка
-    и различными типами регуляторов (П, ПД, ПИ).
+    и различными типами регуляторов (P, PD, PI).
     """
 
-    def __init__(self, name, controller_type, a0=3.0, a1=3.0, a2=3.0, kp=1.0, kd=1.0, ki=0.3):
+    def __init__(self, name, controller_type: str, a0=1.0, a1=2.0, a2=2.0, kp=1.0, kd=1.0, ki=0.1):
         self.name = name
         self.controller_type = controller_type
 
@@ -98,13 +98,9 @@ class ControlSystem:
         den_closed = np.polyadd(self.den_open, self.num_open)
         return num_closed, den_closed
 
-    def get_roots(self):
-        """Вычисляет корни характеристического уравнения замкнутой системы."""
-        return np.roots(self.den_closed)
-
     def is_stable(self):
         """Проверка основного условия устойчивости (все корни в левой полуплоскости)."""
-        roots = self.get_roots()
+        roots = np.roots(self.den_closed)
         return np.all(np.real(roots) < 0)
 
     def param_label(self, changed=None):
@@ -122,16 +118,24 @@ class ControlSystem:
         elif self.controller_type == "PI":
             return f"Вариант: kп={self.kp:g}, kи={self.ki:g}"
 
-    def print_analysis(self):
+    def get_sistem(self, mode: str):
+        if mode == "Open":
+            return self.open_system
+        elif mode == "Close": 
+            return self.closed_system
+        else:
+            raise ValueError(f"Неизвестный тип системы: {mode}. Допустимые типы: \"Open\", \"Close\"")
+
+    def get_name(self):
+        return self.name
+
+    def __str__(self):
         """Выводит в консоль подробный расчет корней и статус устойчивости."""
-        roots = self.get_roots()
-        status = "УСТОЙЧИВА" if self.is_stable() else "НЕУСТОЙЧИВА"
-        print(f"\n================ {self.name} ({self.param_label()}) ================")
-        print("Корни характеристического уравнения:")
-        for i, r in enumerate(roots, 1):
-            sign = "+" if r.imag >= 0 else "-"
-            print(f"  s_{i} = {r.real:+.4f} {sign} {abs(r.imag):.4f}j")
-        print(f"Состояние системы: {status}")
+        res = f"\n================ {self.name} ({self.param_label()}) ================\nКорни характеристического уравнения:\n"
+        for i, r in enumerate(np.roots(self.den_closed), 1):
+            res += f"   s_{i} = {r.real:+.4f} {"+" if r.imag >= 0 else "-"} {abs(r.imag):.4f}j\n"
+        res += f"Состояние системы: {"УСТОЙЧИВА" if self.is_stable() else "НЕУСТОЙЧИВА"}"
+        return res
 
 
 class SystemPlotter:
@@ -139,22 +143,23 @@ class SystemPlotter:
     Класс для визуализации годографа Найквиста и расчета запасов устойчивости.
     """
 
-    def __init__(self, w_min=0.001, w_max=100.0, points=5000):
+    def __init__(self, w_min=0.001, w_max=100.0, points=5000, mirror=True):
         self.w = np.logspace(np.log10(w_min), np.log10(w_max), points)
+        self.mirror = mirror
 
-    def _curves(self, system):
+    def _curves(self, system: ControlSystem):
         """Основная система (сплошная линия) и сравнения (пунктир)."""
         yield system, system.param_label(), {"linestyle": "-", "linewidth": 2.0}
 
-        for param, value, alt in system.comparison_systems():
+        for param, _, alt in system.comparison_systems():
             yield alt, alt.param_label(changed=param), {
                 "linestyle": "--",
                 "linewidth": 1.5,
             }
 
-    def _calculate_margins(self, system):
+    def _calculate_margins(self, system: ControlSystem):
         """Вычисление запасов устойчивости по амплитуде и фазе."""
-        _, H = signal.freqresp(system.open_system, w=self.w)
+        _, H = signal.freqresp(system.get_sistem("Open"), w=self.w)
         mag = np.abs(H)
         phase = np.unwrap(np.angle(H)) * 180.0 / np.pi
 
@@ -170,22 +175,23 @@ class SystemPlotter:
 
         return gain_margin_db, gain_margin_times, phase_margin
 
-    def plot_nyquist(self, system):
+    def plot_nyquist(self, system: ControlSystem):
         """Строит годограф Найквиста для системы и выводит запасы устойчивости."""
         fig, ax = plt.subplots(figsize=(8, 7))
 
-        for i, (sys_item, label, style) in enumerate(self._curves(system)):
-            _, H = signal.freqresp(sys_item.open_system, w=self.w)
+        for (sys_item, label, style) in self._curves(system):
+            _, H = signal.freqresp(sys_item.get_sistem("Open"), w=self.w)
 
             # Прямая и зеркальная ветви
             ax.plot(H.real, H.imag, label=f"{label} (ω > 0)", **style)
-            ax.plot(
-                H.real,
-                -H.imag,
-                linestyle=":",
-                color=style.get("color", None),
-                alpha=0.5,
-            )
+            if self.mirror:
+                ax.plot(
+                    H.real,
+                    -H.imag,
+                    linestyle=":",
+                    color=style.get("color", None),
+                    alpha=0.5,
+                )
 
             # Вычисление и печать запасов для текущего режима
             gm_db, gm_times, pm = self._calculate_margins(sys_item)
@@ -201,7 +207,7 @@ class SystemPlotter:
         ax.axhline(0, color="black", linewidth=0.8, linestyle="-")
         ax.axvline(0, color="black", linewidth=0.8, linestyle="-")
 
-        ax.set_title(f"Годограф Найквиста: {system.name}")
+        ax.set_title(f"Годограф Найквиста: {system.get_name()}")
         ax.set_xlabel("Re W(jω)")
         ax.set_ylabel("Im W(jω)")
         ax.grid(True, linestyle=":")
@@ -211,10 +217,10 @@ class SystemPlotter:
         fig.tight_layout()
         return fig
 
-    def plot_all(self, systems):
+    def plot_all(self, systems: list[ControlSystem]):
         """Построение графиков для всех исследуемых систем."""
         for sys in systems:
-            sys.print_analysis()
+            print(sys)
             self.plot_nyquist(sys)
         plt.show()
 
@@ -223,28 +229,28 @@ class SystemPlotter:
 # ОСНОВНОЙ БЛОК ВЫПОЛНЕНИЯ (ВАРИАНТ 10)
 # ==========================================
 if __name__ == "__main__":
-    # Коэффициенты объекта для Варианта 10: a0=3, a1=3, a2=3
-    a0, a1, a2 = 3.0, 3.0, 3.0
+    # Коэффициенты объекта для Варианта 1: a0=1.0, a1=2.0, a2=2.0
+    a0, a1, a2 = 1.0, 2.0, 2.0
 
     # 1. Пропорциональный регулятор (П-регулятор)
     # Исследуем:
-    # - kp = 1 (табличный, система устойчива)
-    # - kp = 4 (система неустойчива)
-    # - kp = 2.0 (граничное значение, годограф проходит через point (-1, j0))
+    # - kp = 1.0 (табличный, система устойчива)
+    # - kp = 3.0 (граничное значение)
+    # - kp = 4.0 (увеличенное значение, система становится неустойчивой)
     p_sys = ControlSystem(
         name="Исследование П-регулятора",
         controller_type="P",
         a0=a0,
         a1=a1,
         a2=a2,
-        kp=[1.0, 4.0, 2.0],  # 1.0 — вариант, 4.0 и 2.0 — пунктиры для сравнения
+        kp=[1.0, 3.0, 4.0],  # 1.0 — вариант, 3.0 и 4.0 — пунктиры для сравнения
     )
 
     # 2. Пропорционально-дифференциальный регулятор (ПД-регулятор)
     # При kp = 4:
-    # - kd = 1.0 (табличное значение, система неустойчива)
-    # - kd = 2.0 (граничное значение)
-    # - kd = 4.0 (увеличенное значение, система становится устойчивой)
+    # - kd = 1.0 (табличное значение, система устойчива)
+    # - kd = 0.5 (граничное значение)
+    # - kd = 0.25 (уменьшенное значение, система становится неустойчивой)
     pd_sys = ControlSystem(
         name="Исследование ПД-регулятора",
         controller_type="PD",
@@ -252,14 +258,14 @@ if __name__ == "__main__":
         a1=a1,
         a2=a2,
         kp=4.0,
-        kd=[1.0, 2.0, 4.0],  # 1.0 — вариант, 2.0 и 4.0 — пунктиры
+        kd=[1.0, 0.5, 0.25],  # 1.0 — вариант, 0.5 и 0.25 — пунктиры
     )
 
     # 3. Пропорционально-интегральный регулятор (ПИ-регулятор)
     # При kp = 1:
-    # - ki = 0.3 (табличное значение, система устойчива)
-    # - ki = 0.8889 (граничное значение ki_гран = 8/9 ≈ 0.8889)
-    # - ki = 1.5 (увеличенное значение, система становится неустойчивой)
+    # - ki = 0.1 (табличное значение, система устойчива)
+    # - ki = 1 (граничное значение)
+    # - ki = 1.9 (увеличенное значение, система становится неустойчивой)
     pi_sys = ControlSystem(
         name="Исследование ПИ-регулятора",
         controller_type="PI",
@@ -267,7 +273,7 @@ if __name__ == "__main__":
         a1=a1,
         a2=a2,
         kp=1.0,
-        ki=[0.3, 0.8889, 1.5],  # 0.3 — вариант, 0.8889 и 1.5 — пунктиры
+        ki=[0.1, 1, 1.9],  # 0.1 — вариант, 1.0 и 1.9 — пунктиры
     )
 
     systems = [p_sys, pd_sys, pi_sys]
