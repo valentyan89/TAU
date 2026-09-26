@@ -284,14 +284,14 @@ if __name__ == "__main__":
     link2 = Link(
         name="Форсирующее звено",
         link_type="forcing",
-        k=1,
+        k=k,
         T=[T, T/2, T*2],
     )
 
     link3 = Link(
         name="Колебательное звено",
         link_type="oscillatory",
-        k=1,
+        k=k,
         T=T,
         zeta=[zeta, zeta/2, zeta*2],
     )
@@ -299,7 +299,7 @@ if __name__ == "__main__":
     link4 = Link(
         name="Комбинированное звено",
         link_type="combined",
-        k=1,
+        k=k,
         T=T,
         zeta=[zeta, zeta/2, zeta*2],
     )
