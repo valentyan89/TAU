@@ -1,11 +1,10 @@
 """Лабораторная № 3, вариант 10: качество непрерывных линейных САУ.
 
-Запуск: python lab3/lab3.py [--no-show] [--output КАТАЛОГ]
+Запуск: python lab3/lab3.py
 Первое значение параметра — основной вариант, остальные — сравнения.
-Результаты: таблица 3.1 (CSV), 3 общих и 10 отдельных графиков (PNG).
+Результаты: таблица 3.1 (CSV), 3 общих и отдельные графиков (PNG).
 """
 
-import argparse
 import csv
 import sys
 from dataclasses import dataclass
@@ -207,6 +206,30 @@ class SystemPlotter:
         ax.grid(True, linestyle=":")
         ax.legend(fontsize=9)
 
+    def plot_all(self, systems, show=True):
+        """Рассчитать все варианты, сохранить таблицу и построить графики."""
+        analyzer = QualityAnalyzer(corridor=self.corridor)
+        all_results = []
+        for system in systems:
+            variants = [system]
+            for _, _, alternative in system.comparison_systems():
+                variants.append(alternative)
+
+            group = []
+            for variant in variants:
+                group.append(analyzer.analyze(variant))
+            all_results.extend(group)
+            self.plot_group(group)
+
+        save_table(all_results, self.output_dir)
+        print_best_settings(all_results)
+        print(f"\nPNG и CSV: {self.output_dir.resolve()}")
+        if show:
+            plt.show()
+        else:
+            plt.close('all')
+        return all_results
+
     def plot_group(self, results):
         fig, ax = plt.subplots(figsize=(11, 6))
         for i, result in enumerate(results):
@@ -257,51 +280,73 @@ def save_table(results, output_dir):
         print(' | '.join(value.ljust(width) for value, width in zip(row, widths)))
 
 
-def main(argv=None):
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--no-show', action='store_true', help='Сохранить графики без открытия окон')
-    parser.add_argument('--output', type=Path, default=Path(__file__).resolve().parent / 'results')
-    args = parser.parse_args(argv)
-    a0 = a1 = a2 = 3.
-    kg = a1 * a2 / a0 - 1
-    print("Лабораторная № 3. Вариант 10")
-    print(f"kг = a1·a2/a0 − 1 = {a1:g}·{a2:g}/{a0:g} − 1 = {kg:g}")
-    print("Коридор 5%: |h(t) − hуст| ≤ 0.05|hуст|; учитывается последний выход.")
-    kp_pi = .1 * kg
-    ki_max = (1 + kp_pi) * (a1 * a2 - a0 * (1 + kp_pi)) / a1**2
-    print(f"ПИ, критерий Гурвица: 0 < kи < (1+kп)[a1·a2−a0(1+kп)]/a1² = {ki_max:g}")
-    systems = [
-        ControlSystem('Исследование П-регулятора', 'P', a0, a1, a2,
-                      kp=[alpha * kg for alpha in (.1, .3, .5, .7)]),
-        ControlSystem('Исследование ПД-регулятора', 'PD', a0, a1, a2,
-                      kp=.9 * kg, kd=[.5, 1, 2, 4, 8]),
-        ControlSystem('Исследование ПИ-регулятора', 'PI', a0, a1, a2, kp=kp_pi, ki=.1),
-    ]
-    analyzer = QualityAnalyzer()
-    plotter = SystemPlotter(args.output, analyzer.corridor)
-    all_results = []
-    for system in systems:
-        group = [analyzer.analyze(item) for item in
-                 [system] + [alt for _, _, alt in system.comparison_systems()]]
-        all_results.extend(group)
-        plotter.plot_group(group)
-    save_table(all_results, args.output)
+def print_best_settings(results):
+    """Вывести настройки с минимальными показателями, включая равные результаты."""
     print("\nЛучшие исследованные настройки:")
-    for attr, label in [('t_reg', 'Минимальное tр'), ('overshoot', 'Минимальное σ'), ('error', 'Минимальная |e∞|')]:
-        best = min(abs(getattr(r, attr)) for r in all_results)
-        for r in all_results:
-            if np.isclose(abs(getattr(r, attr)), best, rtol=1e-7, atol=1e-9):
-                print(f"{label}: {r.system.kind}, {r.system.param_label()} → {best:.6f}")
-    print(f"\nPNG и CSV: {args.output.resolve()}")
-    if args.no_show:
-        plt.close('all')
-    else:
-        plt.show()
-    return all_results
+    indicators = [
+        ('t_reg', 'Минимальное tр'),
+        ('overshoot', 'Минимальное σ'),
+        ('error', 'Минимальная |e∞|'),
+    ]
+    for attr, label in indicators:
+        best = min(abs(getattr(result, attr)) for result in results)
+        for result in results:
+            if np.isclose(abs(getattr(result, attr)), best, rtol=1e-7, atol=1e-9):
+                system = result.system
+                print(f"{label}: {system.kind}, {system.param_label()} → {best:.6f}")
 
 
 if __name__ == '__main__':
-    main()
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
 
+    # Исходные данные варианта 10.
+    a0 = 3.0
+    a1 = 3.0
+    a2 = 3.0
+    kg = a1 * a2 / a0 - 1
+
+    # Коэффициенты регуляторов: первое значение — основное, остальные — сравнения.
+    kp_p = [0.1 * kg, 0.3 * kg, 0.5 * kg, 0.7 * kg]
+    kp_pd = 0.9 * kg
+    kd = [0.5, 1.0, 2.0, 4.0, 8.0]
+    kp_pi = 0.1 * kg
+    ki = [0.1, 0.2, 0.3, 0.5]
+
+    print("Лабораторная № 3. Вариант 10")
+    print(f"kг = a1·a2/a0 − 1 = {a1:g}·{a2:g}/{a0:g} − 1 = {kg:g}")
+    print("Коридор 5%: |h(t) − hуст| ≤ 0.05|hуст|; учитывается последний выход.")
+
+    # 1. П-регулятор: меняем пропорциональный коэффициент.
+    p_sys = ControlSystem(
+        name="Исследование П-регулятора",
+        controller_type="P",
+        a0=a0, a1=a1, a2=a2,
+        kp=kp_p,
+    )
+
+    # 2. ПД-регулятор: kp постоянный, меняем kd.
+    pd_sys = ControlSystem(
+        name="Исследование ПД-регулятора",
+        controller_type="PD",
+        a0=a0, a1=a1, a2=a2,
+        kp=kp_pd,
+        kd=kd,
+    )
+
+    # 3. ПИ-регулятор: kp постоянный, сравниваем устойчивые значения ki.
+    pi_sys = ControlSystem(
+        name="Исследование ПИ-регулятора",
+        controller_type="PI",
+        a0=a0, a1=a1, a2=a2,
+        kp=kp_pi,
+        ki=ki,
+    )
+
+    ki_max = (1 + pi_sys.kp) * (a1 * a2 - a0 * (1 + pi_sys.kp)) / a1**2
+    print(f"ПИ, критерий Гурвица: 0 < kи < (1+kп)[a1·a2−a0(1+kп)]/a1² = {ki_max:g}")
+
+    systems = [p_sys, pd_sys, pi_sys]
+    output_dir = Path(__file__).resolve().parent / 'results'
+    plotter = SystemPlotter(output_dir)
+    plotter.plot_all(systems)
