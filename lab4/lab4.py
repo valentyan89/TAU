@@ -13,15 +13,17 @@ class ControlSystem:
     Канал ef принят положительным, как Wfe в формуле (4.1) методички.
     """
 
-    def __init__(self, name, kp=1., controller_integrators=0, plant_integrators=0):
+    def __init__(self, name, kp=1., controller_integrators=0, plant_integrators=0,
+                 gains=(4, 1, 1), times=(1.0, 0.8, 0.04)):
         if not np.isfinite(kp) or kp <= 0:
             raise ValueError('Требуется конечное kp > 0')
         if any(n not in (0, 1, 2) for n in (controller_integrators, plant_integrators)):
             raise ValueError('Число интеграторов должно быть 0, 1 или 2')
         self.name, self.kp = name, kp
         self.nc, self.no = controller_integrators, plant_integrators
-        self.k = 4.
-        self.plant_den = np.polymul(np.polymul([1., 1.], [.8, 1.]), [.04, 1.])
+        self.k = float(np.prod(gains))
+        t1, t2, t3 = times
+        self.plant_den = np.polymul(np.polymul([t1, 1.], [t2, 1.]), [t3, 1.])
         self.den_open = np.polymul(self.plant_den, [1.] + [0.] * (self.nc + self.no))
         self.den_closed = np.polyadd(self.den_open, [self.k * kp])
         self.num_g = self.den_open.copy()
@@ -146,16 +148,42 @@ if __name__ == '__main__':
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
 
-    # Усиление П-регулятора и амплитуда гармоник для варианта 10.
+    # Для другого варианта достаточно изменить этот номер.
+    variant = 10
+
+    # Таблица 4.1. В каждой строке ((k1, k2, k3), (T1, T2, T3)).
+    variants = {
+        1: ((1, 4, 1), (0.5, 0.4, 0.03)),
+        2: ((1, 1, 1), (0.6, 0.7, 0.04)),
+        3: ((5, 1, 3), (0.6, 0.6, 0.09)),
+        4: ((1, 4, 5), (0.7, 0.2, 0.03)),
+        5: ((6, 1, 6), (0.7, 0.5, 0.01)),
+        6: ((2, 3, 1), (0.8, 0.8, 0.01)),
+        7: ((2, 2, 2), (0.5, 0.3, 0.08)),
+        8: ((1, 6, 3), (0.6, 0.2, 0.09)),
+        9: ((3, 2, 1), (0.9, 0.7, 0.04)),
+        10: ((4, 1, 1), (1.0, 0.8, 0.04)),
+    }
+    if variant not in variants:
+        raise ValueError("Выберите вариант от 1 до 10")
+    gains, times = variants[variant]
+    plant = {"gains": gains, "times": times}
+
     kp = 1.0
     amplitude = 1.0
     integrator_kp = 0.05
+    base_system = ControlSystem("П-регулятор", kp=kp, **plant)
+    if not base_system.is_stable():
+        # Для П-регулятора берём половину предельного усиления по Гурвицу.
+        a3, a2, a1, a0 = base_system.plant_den
+        kp = (a2 * a1 / a3 - a0) / (2 * base_system.k)
+        base_system = ControlSystem("П-регулятор", kp=kp, **plant)
     systems = [
-        ControlSystem("П-регулятор", kp=kp),
-        ControlSystem("Интегратор в регуляторе", kp=integrator_kp, controller_integrators=1),
-        ControlSystem("Интегратор в объекте", kp=integrator_kp, plant_integrators=1),
-        ControlSystem("Два интегратора в регуляторе", kp=integrator_kp, controller_integrators=2),
-        ControlSystem("Два интегратора в объекте", kp=integrator_kp, plant_integrators=2),
+        base_system,
+        ControlSystem("Интегратор в регуляторе", kp=integrator_kp, controller_integrators=1, **plant),
+        ControlSystem("Интегратор в объекте", kp=integrator_kp, plant_integrators=1, **plant),
+        ControlSystem("Два интегратора в регуляторе", kp=integrator_kp, controller_integrators=2, **plant),
+        ControlSystem("Два интегратора в объекте", kp=integrator_kp, plant_integrators=2, **plant),
     ]
 
     # Таблица 4.2: пары амплитуд для постоянных и линейных входов.
@@ -176,7 +204,8 @@ if __name__ == '__main__':
     ]
 
     plotter = SystemPlotter()
-    print("Лабораторная № 4. Вариант 10. Метод коэффициентов ошибки.")
+    print(f"Лабораторная № 4. Вариант {variant}. Метод коэффициентов ошибки.")
+    print(f"Параметры объекта: k={gains}, T={times}")
     print("Знаковое соглашение: e = eg − ef.")
 
     for system in systems:
