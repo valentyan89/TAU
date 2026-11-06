@@ -1,11 +1,7 @@
-import argparse
-import csv
 import math
-from pathlib import Path
 import sys
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 import numpy as np
 from scipy import signal
 
@@ -96,31 +92,15 @@ class ErrorAnalyzer:
 class SystemPlotter:
     """Моделирование - сплошная линия, аналитический расчёт - пунктир."""
 
-    def __init__(self, output_dir, show=True):
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.show = show
-
-    def save(self, fig, filename):
-        fig.tight_layout(rect=(0, .05, 1, .96) if len(fig.texts) > 1 else (0, 0, 1, 1))
-        fig.savefig(self.output_dir / filename, dpi=160)
-        if not self.show:
-            plt.close(fig)
-
-    @staticmethod
-    def system_label(system):
-        return {'P': 'П-регулятор', 'I_controller': 'Интегратор в регуляторе',
-                'I_plant': 'Интегратор в объекте'}[system.name]
-
-    def polynomial(self, system, cases):
+    def polynomial(self, system, results):
         """Все шесть опытов на одном рисунке; одинаковые каналы не дублируются."""
         fig, axes = plt.subplots(2, 2, figsize=(11, 8))
         for row, channel in enumerate(('g', 'f')):
             for col, ramp in enumerate((False, True)):
                 ax = axes[row, col]
-                amplitudes = sorted({case[row][0] for case in cases if case[row][1] == ramp})
+                amplitudes = sorted({amplitude for key, amplitude, mode in results if key == channel and mode == ramp})
                 for amplitude in amplitudes:
-                    t, measured, calculated, _ = ErrorAnalyzer(system).polynomial(channel, amplitude, ramp)
+                    t, measured, calculated, _ = results[channel, amplitude, ramp]
                     label = f'{channel}(t)={amplitude:g}' + ('t' if ramp else '')
                     line, = ax.plot(t, measured, label=label, linewidth=1.8)
                     ax.plot(t, calculated, '--', color=line.get_color(), linewidth=1.3)
@@ -129,21 +109,20 @@ class SystemPlotter:
                        (' · линейный вход' if ramp else ' · постоянный вход'))
                 ax.grid(True, linestyle=':')
                 ax.legend(fontsize=9)
-        fig.suptitle(self.system_label(system) + ' · Негармонические воздействия', fontsize=14)
+        fig.suptitle(system.name + ' · Негармонические воздействия', fontsize=14)
         fig.text(.5, .01, 'Сплошная линия — моделирование; пунктир — МКО. Все опыты таблицы 4.2.',
                  ha='center', fontsize=10)
         fig.tight_layout(rect=(0, .035, 1, .95))
-        self.save(fig, f'{system.name}_polynomial.png')
 
-    def harmonic(self, system, cases):
+    def harmonic(self, system, results):
         """Все пять опытов: каналы по строкам, частоты по столбцам."""
         fig, axes = plt.subplots(2, 2, figsize=(11, 8))
         for row, channel in enumerate(('g', 'f')):
             for col, omega in enumerate((1, 50)):
                 ax = axes[row, col]
-                amplitudes = sorted({case[row][0] for case in cases if case[row][1] == omega})
+                amplitudes = sorted({amplitude for key, amplitude, frequency in results if key == channel and frequency == omega})
                 for amplitude in amplitudes:
-                    t, measured, exact, _, _ = ErrorAnalyzer(system).harmonic(channel, amplitude, omega)
+                    t, measured, exact, _, _ = results[channel, amplitude, omega]
                     # Общая шкала трёх периодов с началом в нулевой фазе входа.
                     period = 2*np.pi/omega
                     start = np.floor(t[-1]/period)*period - 3*period
@@ -157,102 +136,89 @@ class SystemPlotter:
                        title=('По заданию' if channel == 'g' else 'По помехе') + f' · ω={omega:g} рад/с')
                 ax.grid(True, linestyle=':')
                 ax.legend(fontsize=9)
-        fig.suptitle(self.system_label(system) + ' · Гармонические воздействия', fontsize=14)
+        fig.suptitle(system.name + ' · Гармонические воздействия', fontsize=14)
         fig.text(.5, .01, 'Сплошная линия — моделирование; пунктир — точный расчёт. Все опыты таблицы 4.3.',
                  ha='center', fontsize=10)
         fig.tight_layout(rect=(0, .035, 1, .95))
-        self.save(fig, f'{system.name}_harmonic.png')
-
-def save_table(path, fields, rows):
-    with path.open('w', encoding='utf-8-sig', newline='') as file:
-        writer = csv.writer(file, delimiter=';')
-        writer.writerow(fields)
-        writer.writerows(rows)
-
-
-def main(show=True):
-    output_dir = Path(__file__).resolve().parent / 'results'
-    plotter = SystemPlotter(output_dir, show=show)
-    # kp и A не заданы методичкой: приняты kp=1, A=1 для основных опытов.
-    systems = [ControlSystem('P', kp=1.),
-               ControlSystem('I_controller', kp=.05, controller_integrators=1),
-               ControlSystem('I_plant', kp=.05, plant_integrators=1),
-               ControlSystem('II_controller', kp=.05, controller_integrators=2),
-               ControlSystem('II_plant', kp=.05, plant_integrators=2)]
-    polynomial_cases = [((1,False),(5,False)), ((1,False),(1,False)),
-                        ((5,False),(1,False)), ((1,True),(5,True)),
-                        ((1,True),(1,True)), ((5,True),(1,True))]
-    harmonic_cases = [((1,1),(1,50)), ((1,1),(1,1)), ((1,50),(1,1)),
-                      ((10,1),(1,1)), ((1,1),(10,1))]
-    log = ['Лабораторная № 4. Вариант 10. Метод коэффициентов ошибки.',
-           'Wo=4/D(s), D(s)=0.032s^3+0.872s^2+1.84s+1; kp=1; A=1.',
-           'По схеме e=eg-ef; положительный канал ef соответствует (4.1).',
-           'C_m=W^(m)(0), eуст=C0*u+C1*u\'+C2*u\'\'/2.',
-           'Гармоника: eуст=B*sin(wt+phi); МКО-2 - только приближение.']
-    stability, coefficients = [], []
-    for system in systems:
-        stable = system.is_stable()
-        stability.append([system.name, system.kp, system.nc, system.no, stable,
-                          max(system.poles.real), ' | '.join(map(str, system.poles))])
-        log.append(f'\n{system.name}: kp={system.kp}; устойчивость={stable}; корни={system.poles}')
-        if not stable:
-            log.append('Установившиеся ошибки не определяются: система неустойчива.')
-            continue
-        analyzer = ErrorAnalyzer(system)
-        for channel in ('g','f'):
-            c = system.coefficients(channel)
-            coefficients.append([system.name,channel,*c])
-            log.append(f'C0,C1,C2 ({channel}): {c}')
-        rows = []
-        for i, cases in enumerate(polynomial_cases, 1):
-            for channel, (amplitude, ramp) in zip(('g','f'), cases):
-                t, measured, calculated, residual = analyzer.polynomial(channel, amplitude, ramp)
-                c = system.coefficients(channel)
-                slope, intercept = (amplitude*c[0], amplitude*c[1]) if ramp else (0., amplitude*c[0])
-                limit = f'{intercept:.8g}' if abs(slope)<1e-12 else ('+inf' if slope>0 else '-inf')
-                rows.append([i,channel,f'{amplitude:g}'+('t' if ramp else ''),
-                             t[-1],measured[-1],calculated[-1],slope,intercept,limit,residual])
-        plotter.polynomial(system,polynomial_cases)
-        save_table(output_dir/f'table_4_2_{system.name}.csv',
-                   ['Опыт','Канал','Воздействие','tкон, с','Ошибка экспер. при tкон',
-                    'Ошибка МКО при tкон','Наклон a (at+b)','Смещение b (at+b)',
-                    'Предел ошибки','Макс. расхождение на хвосте'],rows)
-        rows = []
-        for i,cases in enumerate(harmonic_cases,1):
-            for channel,(amplitude,omega) in zip(('g','f'),cases):
-                _,_,exact,experimental,mco = analyzer.harmonic(channel,amplitude,omega)
-                rows.append([i,channel,amplitude,omega,abs(experimental),np.angle(experimental,deg=True),
-                             abs(exact),np.angle(exact,deg=True),abs(mco),np.angle(mco,deg=True),
-                             abs(mco-exact)/abs(exact)*100])
-        plotter.harmonic(system,harmonic_cases)
-        save_table(output_dir/f'table_4_3_{system.name}.csv',
-                   ['Опыт','Канал','Амплитуда входа','Частота, рад/с','Амплитуда экспер.',
-                    'Фаза экспер., град','Амплитуда точная','Фаза точная, град',
-                    'Амплитуда МКО-2','Фаза МКО-2, град','Отн. ошибка комплексной амплитуды МКО-2, %'],rows)
-    save_table(output_dir/'coefficients.csv',['Система','Канал','C0','C1','C2'],coefficients)
-    save_table(output_dir/'stability.csv',['Система','kp','Интеграторы регулятора','Интеграторы объекта',
-                                         'Устойчива','Макс. Re полюса','Полюса'],stability)
-    log.extend(['\nВыводы:',
-                '1. В статической системе постоянная ошибка пропорциональна амплитуде воздействия.',
-                '2. При линейном воздействии в статической системе ошибка растёт: конечного предела нет.',
-                '3. Интегратор в регуляторе устраняет постоянные ошибки обоих каналов.',
-                '4. Интегратор в объекте устраняет постоянную ошибку по заданию, но ef= f/kp сохраняется.',
-                '5. При одном интеграторе ошибка по линейному заданию постоянна и ненулевая.',
-                '6. Два чистых интегратора при выбранном kp приводят к неустойчивости; МКО неприменим.',
-                '7. Гармонические ошибки периодичны; сравниваются амплитуды и фазы, а не предел e(t).',
-                '8. Конечный ряд МКО около s=0 нельзя считать точным на частоте 50 рад/с.'])
-    (output_dir/'calculations.txt').write_text('\n'.join(log)+'\n',encoding='utf-8')
-    print('\n'.join(log))
-    print(f'\nPNG, CSV и расчёты: {output_dir}')
-    if show:
-        plt.show()
-    else:
-        plt.close('all')
 
 
 if __name__ == '__main__':
-    if hasattr(sys.stdout,'reconfigure'):
+    if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--no-show',action='store_true',help='Сохранить графики без открытия окон')
-    main(show=not parser.parse_args().no_show)
+
+    # Усиление П-регулятора и амплитуда гармоник для варианта 10.
+    kp = 1.0
+    amplitude = 1.0
+    integrator_kp = 0.05
+    systems = [
+        ControlSystem("П-регулятор", kp=kp),
+        ControlSystem("Интегратор в регуляторе", kp=integrator_kp, controller_integrators=1),
+        ControlSystem("Интегратор в объекте", kp=integrator_kp, plant_integrators=1),
+        ControlSystem("Два интегратора в регуляторе", kp=integrator_kp, controller_integrators=2),
+        ControlSystem("Два интегратора в объекте", kp=integrator_kp, plant_integrators=2),
+    ]
+
+    # Таблица 4.2: пары амплитуд для постоянных и линейных входов.
+    amplitude_pairs = [(1, 5), (1, 1), (5, 1)]
+    polynomial_cases = [
+        ((g, ramp), (f, ramp))
+        for ramp in (False, True)
+        for g, f in amplitude_pairs
+    ]
+
+    # Таблица 4.3: для каждого входа заданы множитель A и частота.
+    harmonic_cases = [
+        ((1, 1), (1, 50)),
+        ((1, 1), (1, 1)),
+        ((1, 50), (1, 1)),
+        ((10, 1), (1, 1)),
+        ((1, 1), (10, 1)),
+    ]
+
+    plotter = SystemPlotter()
+    print("Лабораторная № 4. Вариант 10. Метод коэффициентов ошибки.")
+    print("Знаковое соглашение: e = eg − ef.")
+
+    for system in systems:
+        stable = system.is_stable()
+        status = "устойчива" if stable else "неустойчива"
+        print(f"\n{system.name}, kп={system.kp:g}. Система {status}.")
+        print(f"Корни характеристического уравнения: {system.poles}")
+        if not stable:
+            print("Установившиеся ошибки не определяются.")
+            continue
+
+        analyzer = ErrorAnalyzer(system)
+        for channel in ("g", "f"):
+            print(f"C0, C1, C2 ({channel}): {system.coefficients(channel)}")
+
+        print("Таблица 4.2. Ошибка в конце моделирования")
+        polynomial_results = {}
+        for i, inputs in enumerate(polynomial_cases, 1):
+            for channel, (level, ramp) in zip(("g", "f"), inputs):
+                key = channel, level, ramp
+                if key not in polynomial_results:
+                    polynomial_results[key] = analyzer.polynomial(*key)
+                t, measured, calculated, _ = polynomial_results[key]
+                input_label = f"{level:g}t" if ramp else f"{level:g}"
+                print(f"  Опыт {i}, {channel}(t)={input_label}, t={t[-1]:.6g} с: "
+                      f"эксперимент={measured[-1]:.8g}, МКО={calculated[-1]:.8g}")
+        plotter.polynomial(system, polynomial_results)
+
+        print("Таблица 4.3. Амплитуда и фаза ошибки")
+        harmonic_results = {}
+        for i, inputs in enumerate(harmonic_cases, 1):
+            for channel, (factor, omega) in zip(("g", "f"), inputs):
+                level = factor * amplitude
+                key = channel, level, omega
+                if key not in harmonic_results:
+                    harmonic_results[key] = analyzer.harmonic(*key)
+                _, _, exact, experimental, mco = harmonic_results[key]
+                print(f"  Опыт {i}, {channel}(t)={level:g} sin({omega:g}t)")
+                for label, response in (("Эксперимент", experimental), ("Точный расчёт", exact),
+                                        ("МКО", mco)):
+                    print(f"    {label}: амплитуда={abs(response):.8g}, "
+                          f"фаза={np.angle(response, deg=True):.6g}°")
+        plotter.harmonic(system, harmonic_results)
+
+    plt.show()
