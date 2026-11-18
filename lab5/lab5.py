@@ -7,7 +7,7 @@ from scipy import signal
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq, minimize_scalar
 
-VARIANT = 10  # Номер варианта от 1 до 10
+VARIANT = 1  # Номер варианта от 1 до 10
 
 # Таблица 5.1. Коэффициенты знаменателя a0·s³ + a1·s² + a2·s + a3.
 VARIANTS = {
@@ -220,32 +220,50 @@ class SystemPlotter:
         Сохраняет график в <series>.png, оставляет его для показа в main()
         и возвращает None.
         """
-        fig, ax = plt.subplots(figsize=(9.4, 4.2), layout="constrained")
-        colors = plt.get_cmap("tab10").colors
+        fig, ax = plt.subplots(figsize=(9, 4.8), layout="constrained")
+        colors = ("#516278", "#2466a8", "#147a6d", "#8055a2",
+                  "#b36a19", "#b04467", "#243650")
+        ax.set_facecolor("#f8fafc")
+        ax.set_axisbelow(True)
 
-        for index, (k, response) in enumerate(experiments):
+        if series != "pd":
+            ax.axhspan(0.95, 1.05, color="#94a8bf", alpha=0.24,
+                       label="Полоса ±5%")
+        ax.axhline(1, color="#526176", linewidth=1, linestyle=":", label="Задание")
+
+        for k, response in experiments:
+            index = K_VALUES.index(k)
             ax.plot(
                 response.time,
                 response.output,
-                lw=1.55,
+                linewidth=1.5,
+                solid_capstyle="round",
                 color=colors[index],
-                label=f"k = {k}, ω = {response.system.omega:g}",
+                label=f"ω = {response.system.omega:g}".replace(".", ","),
             )
-
-        if series != "pd":
-            ax.axhspan(0.95, 1.05, color="#496b82", alpha=0.11, label="Коридор ±5% от 1")
-        ax.axhline(1, color="#57636c", lw=0.8, ls="--")
 
         latest_settling_time = max(response.settling_time for _, response in experiments)
         ax.set(
-            title=f"{title}. Вариант {self.variant}",
             xlabel="Время t, с",
             ylabel="Выход h(t)",
             xlim=(0, max(1.4, 1.1 * latest_settling_time)),
         )
-        ax.grid(alpha=0.25)
-        ax.legend(loc="upper right", ncols=2, fontsize=8.4)
-        fig.savefig(self.output_dir / f"{series}.png", dpi=190)
+        ax.set_title(title, loc="left", fontsize=16, fontweight="bold",
+                     color="#172638", pad=12)
+        ax.set_title(f"Вариант {self.variant}", loc="right", fontsize=10,
+                     color="#526176", pad=12)
+        ax.grid(color="#d7e1eb", linewidth=0.7)
+        ax.tick_params(colors="#445368", labelsize=10)
+        for side in ("left", "bottom"):
+            ax.spines[side].set_color("#a9b7c7")
+        handles, labels = ax.get_legend_handles_labels()
+        references = len(handles) - len(experiments)
+        ax.legend(handles[references:] + handles[:references],
+                  labels[references:] + labels[:references],
+                  title="Частота ω, рад/с",
+                  loc="upper center", bbox_to_anchor=(0.5, -0.17),
+                  ncols=5, frameon=False, fontsize=9)
+        fig.savefig(self.output_dir / f"{series}.png", dpi=300, facecolor="white")
 
 
 def run_series(series, k_values, plant):
