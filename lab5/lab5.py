@@ -7,7 +7,7 @@ from scipy import signal
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq, minimize_scalar
 
-VARIANT = 1  # Номер варианта от 1 до 10
+VARIANT = 10  # Номер варианта от 1 до 10
 
 # Таблица 5.1. Коэффициенты знаменателя a0·s³ + a1·s² + a2·s + a3.
 VARIANTS = {
